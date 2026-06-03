@@ -4,6 +4,14 @@ import tree_sitter_rust as tsrust
 import tree_sitter_javascript as tsjavascript
 import tree_sitter_java as tsjava
 from tree_sitter import Language, Parser, Query
+
+# Secure architectural backward compatibility setup for QueryCursor instances
+try:
+    from tree_sitter import QueryCursor
+except ImportError:
+    # Fallback structure mapping if running an older sub-dependency architecture
+    QueryCursor = None
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
 from PySide6.QtWidgets import (
@@ -26,9 +34,6 @@ class AdvancedPolyglotDistiller(QMainWindow):
         }
         self.ts_parser = Parser()
         self.current_tree = None
-        
-        # Track node click regions mapped to text strings: (start_byte, end_byte)
-        self.node_coordinate_map = {}
         
         self.init_ui()
 
@@ -68,14 +73,13 @@ class AdvancedPolyglotDistiller(QMainWindow):
         code_layout.addWidget(self.code_input)
         left_workspace.addWidget(code_box)
         
-        # Custom S-Expression Query Area (Feature 1)
+        # Custom S-Expression Query Area
         query_box = QWidget()
         query_layout = QVBoxLayout(query_box)
         query_layout.setContentsMargins(0, 0, 0, 0)
         query_layout.addWidget(QLabel("Live S-Expression DSL Query Selector:"))
         self.query_input = QPlainTextEdit()
         self.query_input.setFont(mono_font)
-        self.query_input.setPlainText("(function_definition name: (identifier) @cap.name)")
         query_layout.addWidget(self.query_input)
         
         self.parse_button = QPushButton("Execute Advanced Tree Analysis")
@@ -101,7 +105,7 @@ class AdvancedPolyglotDistiller(QMainWindow):
         ast_layout.addWidget(self.ast_output)
         right_workspace.addWidget(ast_box)
         
-        # Execution Query Captures Panel & Diagnostics (Feature 5)
+        # Execution Query Captures Panel & Diagnostics
         captures_box = QWidget()
         captures_layout = QVBoxLayout(captures_box)
         captures_layout.setContentsMargins(0, 0, 0, 0)
@@ -163,7 +167,7 @@ class AdvancedPolyglotDistiller(QMainWindow):
         
         log_outputs = []
         
-        # 2. Scanning for Compilation Diagnostics (Feature 5)
+        # 2. Scanning for Compilation Diagnostics
         def scan_errors(node):
             if node.type == "ERROR" or node.is_missing:
                 log_outputs.append(f"[SYNTAX DIAGNOSTIC] Found compilation error token range: Line {node.start_point[0] + 1}, Col {node.start_point[1]}")
@@ -171,17 +175,36 @@ class AdvancedPolyglotDistiller(QMainWindow):
                 scan_errors(child)
         scan_errors(self.current_tree.root_node)
         
-        # 3. Dynamic DSL S-Expression Runtime Processing (Feature 1)
+        # 3. Flexible Polyglot Query Evaluation
         query_text = self.query_input.toPlainText()
         if query_text.strip():
             try:
-                # Compile matching query format using modern constructor bindings
                 ts_query = Query(lang_obj, query_text)
-                captures = ts_query.captures(self.current_tree.root_node)
                 
-                if captures:
-                    log_outputs.append(f"\n=== Active Query Match Captures ({len(captures)}) ===")
-                    for node, tag in captures:
+                # Dynamic API fallback detection
+                if QueryCursor is not None:
+                    # Implementation for modern tree-sitter architectures (v0.24/v0.25+)
+                    cursor = QueryCursor()
+                    raw_captures = cursor.captures(ts_query, self.current_tree.root_node)
+                else:
+                    # Implementation for classic older versions
+                    raw_captures = ts_query.captures(self.current_tree.root_node)
+
+                # Process the returned iterable list structured objects
+                if raw_captures:
+                    log_outputs.append(f"\n=== Active Query Match Captures ({len(raw_captures)}) ===")
+                    
+                    for capture_item in raw_captures:
+                        # Normalize differences in return formats across package versions
+                        if isinstance(capture_item, tuple) and len(capture_item) == 2:
+                            node, tag = capture_item
+                        elif isinstance(capture_item, dict):
+                            # Handle newer tree-sitter structure mutations dictionary maps
+                            node = capture_item.get("node")
+                            tag = capture_item.get("name", "captured")
+                        else:
+                            continue
+
                         captured_string = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="ignore")
                         log_outputs.append(f"-> Captured Tag [@{tag}]: '{captured_string}'")
                         log_outputs.append(f"   Position Coordinates: Bytes [{node.start_byte} - {node.end_byte}] | Rows {node.start_point} - {node.end_point}")
