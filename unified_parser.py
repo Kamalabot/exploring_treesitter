@@ -5,7 +5,7 @@ import tree_sitter_java as tsjava
 from tree_sitter import Language, Parser
 
 def get_ast(source_code: bytes, lang_name: str):
-    # 1. Select the correct language grammar
+    # 1. Select the correct language grammar instance
     if lang_name == "python":
         lang = Language(tspython.language())
     elif lang_name == "rust":
@@ -17,9 +17,8 @@ def get_ast(source_code: bytes, lang_name: str):
     else:
         raise ValueError("Unsupported language")
 
-    # 2. Initialize and set language
-    parser = Parser()
-    parser.set_language(lang)
+    # 2. Pass the language directly into the Parser constructor (v0.22+ API)
+    parser = Parser(lang)
 
     # 3. Parse the code
     tree = parser.parse(source_code)
@@ -28,4 +27,6 @@ def get_ast(source_code: bytes, lang_name: str):
 # Example Usage
 python_code = b"def greet(): print('Hello')"
 tree = get_ast(python_code, "python")
-print(tree.root_node.sexp())
+
+# 4. Use str() instead of .sexp() to get the S-expression output (v0.22+ API)
+print(str(tree.root_node))
