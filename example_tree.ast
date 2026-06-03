@@ -1,0 +1,20 @@
+(module 
+  (function_definition 
+    name: (identifier) 
+    parameters: (parameters) 
+    body: (block 
+      (expression_statement 
+        (call 
+          function: (identifier) 
+          arguments: (argument_list 
+            (string 
+              (string_start) 
+              (string_content) 
+              (string_end)
+            )
+          )
+        )
+      )
+    )
+  )
+)

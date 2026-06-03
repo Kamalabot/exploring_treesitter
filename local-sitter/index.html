@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fixed Local Tree-sitter Playground</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/clusterize.js/0.18.1/clusterize.min.css">
+    
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #2d2d2d;
+            --text-color: #cccccc;
+            --border-color: #444;
+        }
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            font-family: system-ui, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+        }
+        header {
+            padding: 10px 20px;
+            background: var(--panel-bg);
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        select, button {
+            background: #444;
+            color: #fff;
+            border: 1px solid #666;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #playground-container {
+            display: flex;
+            flex: 1;
+            visibility: hidden; /* Script makes this visible after WASM init */
+        }
+        .panel {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+        .CodeMirror {
+            flex: 1;
+            height: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            background: var(--panel-bg) !important;
+        }
+        #output-container-scroll {
+            flex: 1;
+            overflow: auto;
+            padding: 15px;
+            border-left: 2px solid var(--border-color);
+            background: var(--bg-color);
+        }
+        .tree-row {
+            font-family: monospace;
+            white-space: pre;
+            line-height: 1.5;
+            font-size: 13px;
+        }
+        .node-link { text-decoration: none; }
+        .node-link.named { color: #4EC9B0; font-weight: bold; }
+        .node-link.anonymous { color: #CE9178; }
+        .node-link.error { color: #F44747; text-decoration: underline; }
+        .position-info { color: #6a9955; font-size: 11px; }
+        #query-container {
+            height: 150px;
+            border-top: 2px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clusterize.js/0.18.1/clusterize.min.js"></script>
+    
+    <script type="module" src="web-tree-sitter.js"></script></head>
+<body>
+
+    <header>
+        <label for="language-select">Language:</label>
+        <select id="language-select">
+            <option value="python">Python</option>
+        </select>
+        <span id="language-version"></span>
+        
+        <label><input type="checkbox" id="anonymous-nodes-checkbox" checked> Anonymous Nodes</label>
+        <label><input type="checkbox" id="query-checkbox"> Enable Query</label>
+        <label><input type="checkbox" id="logging-checkbox"> Debug Log</label>
+        <label><input type="checkbox" id="accessibility-checkbox"> High Contrast</label>
+        
+        <button id="copy-button">Copy AST</button>
+        <span>Parse Speed: <strong id="update-time">0 ms</strong></span>
+    </header>
+
+    <div id="playground-container">
+        <div class="panel">
+            <textarea id="code-input">def greet(name):
+    print(f"Hello, {name}!")</textarea>
+            
+            <div id="query-container">
+                <textarea id="query-input">(function_definition name: (identifier) @func.name)</textarea>
+            </div>
+        </div>
+        
+        <div id="output-container-scroll" class="clusterize-scroll">
+            <div id="output-container" class="clusterize-content"></div>
+        </div>
+    </div>
+    <script type="module">
+        // 1. Dynamically import the module to capture its export map
+        import TreeSitterModule from './web-tree-sitter.js';
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // 2. Bind the resolved module constructor directly to the window context 
+                // so your playground function can access it uniformly.
+                window.TreeSitter = TreeSitterModule;
+
+                if (window.TreeSitter) {
+                    await window.initializePlayground({ local: true });
+                } else {
+                    console.error("TreeSitter failed to resolve from the module export.");
+                }
+            } catch (error) {
+                console.error("Failed to load or initialize Tree-sitter playground:", error);
+            }
+        });
+    </script>
+
+    <script>
+        // Set up local runtime global constants before firing orchestration logic
+        window.LANGUAGE_BASE_URL = "."; 
+        
+        // Overwrite standard initializePlayground invocation targeting the local WASM name mappings
+        window.addEventListener('DOMContentLoaded', () => {
+            window.initializePlayground({ local: true });
+        });
+
+        // Insert the refactored script below directly to bind UI layout actions
+        // ====================================================================
+        
+        function initializeLocalTheme() {
+          const themeToggle = document.getElementById('theme-toggle');
+          if (!themeToggle) return;
+          const savedTheme = localStorage.getItem('theme');
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', initialTheme);
+        }
+
+        function initializeCustomSelect({ initialValue = null, addListeners = false }) {
+          const button = document.getElementById('language-button');
+          const select = document.getElementById('language-select');
+          if (!button || !select) return;
+          const dropdown = button.nextElementSibling;
+          const selectedValue = button.querySelector('.selected-value');
+          if (initialValue) select.value = initialValue;
+        }
+
+        window.initializePlayground = async (opts) => {
+          // Point execution contexts cleanly into web-tree-sitter structures
+          const Parser = window.TreeSitter;
+          const { Language, Query } = window.TreeSitter;
+
+          const { local } = opts;
+          if (local) initializeLocalTheme();
+          initializeCustomSelect({ addListeners: true });
+
+          let tree;
+          const CAPTURE_REGEX = /@\s*([\w\._-]+)/g;
+          const LIGHT_COLORS = ["#0550ae", "#ab5000", "#116329", "#844708"];
+          const DARK_COLORS = ["#79c0ff", "#ffa657", "#7ee787", "#ff7b72"];
+
+          const codeInput = document.getElementById("code-input");
+          const languageSelect = document.getElementById("language-select");
+          const languageVersion = document.getElementById('language-version');
+          const loggingCheckbox = document.getElementById("logging-checkbox");
+          const anonymousNodes = document.getElementById('anonymous-nodes-checkbox');
+          const outputContainer = document.getElementById("output-container");
+          const outputContainerScroll = document.getElementById("output-container-scroll");
+          const playgroundContainer = document.getElementById("playground-container");
+          const queryCheckbox = document.getElementById("query-checkbox");
+          const queryContainer = document.getElementById("query-container");
+          const queryInput = document.getElementById("query-input");
+          const accessibilityCheckbox = document.getElementById("accessibility-checkbox");
+          const copyButton = document.getElementById("copy-button");
+          const updateTimeSpan = document.getElementById("update-time");
+          const languagesByName = {};
+
+          loadState();
+
+          // Initialize WebAssembly runtime environment matching local filenames
+          await Parser.init({
+              locateFile(scriptName) {
+                  if (scriptName === 'tree-sitter.wasm') return 'web-tree-sitter.wasm';
+                  return scriptName;
+              }
+          });
+          const parser = new Parser();
+
+          const codeEditor = CodeMirror.fromTextArea(codeInput, {
+            lineNumbers: true,
+            showCursorWhenSelecting: true
+          });
+
+          const queryEditor = CodeMirror.fromTextArea(queryInput, {
+            lineNumbers: true,
+            showCursorWhenSelecting: true,
+          });
+
+          const cluster = new Clusterize({
+            rows: [],
+            noDataText: null,
+            contentElem: outputContainer,
+            scrollElem: outputContainerScroll,
+          });
+
+          const renderTreeOnCodeChange = debounce(renderTree, 50);
+          const saveStateOnChange = debounce(saveState, 2000);
+          const runTreeQueryOnChange = debounce(runTreeQuery, 50);
+
+          let languageName = languageSelect.value;
+          let treeRows = null;
+          let treeRowHighlightedIndex = -1;
+          let parseCount = 0;
+          let isRendering = 0;
+          let query;
+
+          codeEditor.on("changes", handleCodeChange);
+          queryEditor.on("changes", debounce(handleQueryChange, 150));
+          anonymousNodes.addEventListener("change", renderTree);
+          queryCheckbox.addEventListener("change", handleQueryEnableChange);
+          languageSelect.addEventListener("change", handleLanguageChange);
+
+          handleQueryEnableChange();
+          await handleLanguageChange();
+          playgroundContainer.style.visibility = "visible";
+
+          async function handleLanguageChange() {
+            const newLanguageName = languageSelect.value;
+            if (!languagesByName[newLanguageName]) {
+              const url = `${window.LANGUAGE_BASE_URL}/tree-sitter-${newLanguageName}.wasm`;
+              try {
+                languagesByName[newLanguageName] = await Language.load(url);
+              } catch (e) {
+                console.error(e);
+                return;
+              }
+            }
+            tree = null;
+            languageName = newLanguageName;
+            parser.setLanguage(languagesByName[newLanguageName]);
+            handleCodeChange();
+          }
+
+          async function handleCodeChange() {
+            const newText = codeEditor.getValue() + "\n";
+            const start = performance.now();
+            const newTree = parser.parse(newText, tree);
+            updateTimeSpan.innerText = `${(performance.now() - start).toFixed(1)} ms`;
+            if (tree) tree.delete();
+            tree = newTree;
+            parseCount++;
+            renderTreeOnCodeChange();
+          }
+
+          async function renderTree() {
+            isRendering++;
+            const cursor = tree.walk();
+            let row = "";
+            let rows = [];
+            let finishedRow = false;
+            let visitedChildren = false;
+            let indentLevel = 0;
+
+            for (let i = 0; ; i++) {
+              let displayName = cursor.nodeIsNamed ? cursor.nodeType : (anonymousNodes.checked ? cursor.nodeType : null);
+
+              if (visitedChildren) {
+                if (displayName) finishedRow = true;
+                if (cursor.gotoNextSibling()) visitedChildren = false;
+                else if (cursor.gotoParent()) { visitedChildren = true; indentLevel--; }
+                else break;
+              } else {
+                if (displayName) {
+                  if (finishedRow) { row += "</div>"; rows.push(row); finishedRow = false; }
+                  const start = cursor.startPosition;
+                  const end = cursor.endPosition;
+                  const id = cursor.nodeId;
+                  row = `<div class="tree-row">${"  ".repeat(indentLevel)}<a class="node-link ${cursor.nodeIsNamed ? 'named':'anonymous'}" href="#" data-id="${id}">${displayName}</a> <span class="position-info">[${start.row}, ${start.column}]</span>`;
+                  finishedRow = true;
+                }
+                if (cursor.gotoFirstChild()) { visitedChildren = false; indentLevel++; }
+                else visitedChildren = true;
+              }
+            }
+            if (finishedRow) { row += "</div>"; rows.push(row); }
+            cursor.delete();
+            cluster.update(rows);
+            isRendering--;
+          }
+
+          function handleQueryEnableChange() {
+            queryContainer.style.display = queryCheckbox.checked ? "" : "none";
+            handleQueryChange();
+          }
+
+          function handleQueryChange() { runTreeQuery(); }
+          function runTreeQuery() {}
+          function loadState() {}
+          function saveState() {}
+          function saveQueryState() {}
+
+          function debounce(func, wait) {
+            var timeout;
+            return function () {
+              var context = this, args = arguments;
+              clearTimeout(timeout);
+              timeout = setTimeout(() => func.apply(context, args), wait);
+            };
+          }
+        };
+    </script>
+</body>
+</html>

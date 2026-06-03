@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "tree-sitter-cli": "^0.26.9",
+    "tree-sitter-python": "^0.25.0",
+    "web-tree-sitter": "^0.26.9"
+  }
+}

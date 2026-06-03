@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Local Tree-sitter Playground</title>
+    <style>
+        body { 
+            display: flex; height: 100vh; margin: 0; 
+            font-family: system-ui, sans-serif; background: #1e1e1e;
+        }
+        #editor, #ast-container { width: 50%; box-sizing: border-box; }
+        #editor { 
+            font-family: 'Courier New', monospace; font-size: 15px; 
+            background: #2d2d2d; color: #cccccc; border: none; 
+            padding: 20px; resize: none; outline: none;
+        }
+        #ast-container { 
+            padding: 20px; overflow: auto; border-left: 2px solid #444; 
+        }
+        pre { color: #4EC9B0; margin: 0; font-size: 14px; line-height: 1.4; }
+    </style>
+    <script src="web-tree-sitter.js"></script>
+</head>
+<body>
+    <textarea id="editor" spellcheck="false">
+def greet(name):
+    print(f"Hello, {name}!")
+    </textarea>
+    <div id="ast-container">
+        <pre id="ast">Loading WebAssembly engine...</pre>
+    </div>
+
+    <script>
+        function formatSExp(sexp) {
+            let indent = 0;
+            return sexp.replace(/(\(|\))/g, (match) => {
+                if (match === '(') {
+                    indent++;
+                    return '\n' + '  '.repeat(indent - 1) + '(';
+                } else {
+                    indent--;
+                    return ')';
+                }
+            }).trim();
+        }
+
+        async function init() {
+            // 2. Initialize the WebAssembly engine pointing explicitly to web-tree-sitter.wasm
+            await TreeSitter.init({
+                locateFile(scriptName) {
+                    if (scriptName === 'tree-sitter.wasm') return 'web-tree-sitter.wasm';
+                    return scriptName;
+                }
+            });
+            const parser = new TreeSitter();
+
+            // 3. Load the compiled language WASM file
+            const langWasm = await TreeSitter.Language.load('tree-sitter-python.wasm');
+            parser.setLanguage(langWasm);
+
+            const editor = document.getElementById('editor');
+            const astOutput = document.getElementById('ast');
+
+            function update() {
+                const tree = parser.parse(editor.value);
+                astOutput.textContent = formatSExp(tree.rootNode.toString());
+                tree.delete(); 
+            }
+
+            editor.addEventListener('input', update);
+            update(); 
+        }
+
+        init().catch(err => {
+            document.getElementById('ast').textContent = "Initialization Error: " + err;
+        });
+    </script>
+</body>
+</html>
