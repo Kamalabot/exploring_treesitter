@@ -10,3 +10,6 @@
 [submodule "tree-sitter-parsers/tree-sitter-python"]
 	path = tree-sitter-parsers/tree-sitter-python
 	url = https://github.com/tree-sitter/tree-sitter-python.git
+[submodule "tree-sitter-parsers/tree-sitter-java"]
+	path = tree-sitter-parsers/tree-sitter-java
+	url = https://github.com/tree-sitter/tree-sitter-java.git
